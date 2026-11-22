@@ -189,6 +189,11 @@ python server/mcp_server.py --preview 8765
 - 会话令牌仅在内存中临时使用，不写入配置文件、不打印日志、不落盘。
 - 面板偏好与活跃会话指针仅保存在 Antigravity 分配的 `${PLUGIN_DATA}` 目录中，不会写入代码仓库。
 
+## 致谢与协作
+
+- **AI 协作开发**：本项目由 [Xieduuu](https://github.com/Xieduuu) 主导需求设计与验收，由 **Google Gemini（Google Antigravity）** 与 **OpenAI GPT（Codex）** 协作完成架构实现、界面打磨与额度同步优化。
+- **开源参考**：额度接口调用与解析实现参考了 [DYY-Studio/antigravity-model-usage](https://github.com/DYY-Studio/antigravity-model-usage) 与 [steipete/CodexBar](https://github.com/steipete/CodexBar)。
+
 ## License
 
 本项目基于 [MIT License](./LICENSE) 开源。
