@@ -25,6 +25,28 @@
 
 ---
 
+## 界面预览
+
+### Gemini 额度与当前会话
+
+顶部显示 Gemini 5 小时及周限额的剩余百分比和重置倒计时。点击任一「同步」可立即刷新全部额度。下方可查看当前会话的上下文占用、构成估算、缓存命中率及 Token 用量明细。
+
+<img src="./assets/screenshots/quota-and-context.png" alt="Gemini 额度与当前会话上下文面板，会话名称已遮挡" width="520" />
+
+### 额外额度与全局用量
+
+展开详情后，可以查看 Claude &amp; GPT 的 5 小时及周限额、Gemini 4 Argon 的周限额，以及本机今日、本月和累计 Token 用量与今日缓存命中率。
+
+<img src="./assets/screenshots/extra-quotas-and-usage.png" alt="Claude 与 GPT、Argon 额度和全局 Token 用量" width="520" />
+
+### 每日用量日历与模型分布
+
+通过日历切换月份，点击某一天可查看当天的未缓存输入、缓存读取、输出 Token 数和调用次数。下方的模型分布按模型汇总本机历史日志中的 Token 用量和调用次数。
+
+<img src="./assets/screenshots/usage-calendar.png" alt="每日用量热力日历、所选日期明细和按模型用量分布" width="520" />
+
+---
+
 ## 核心特性
 
 ### 1. 零模型 Token 消耗 & 零外部依赖
@@ -64,7 +86,8 @@
 ├── mcp_config.json           # MCP Server 启动配置（使用 ${PLUGIN_ROOT} / ${PLUGIN_DATA}）
 ├── hooks.json                # 生命周期钩子（实时追踪活跃会话）
 ├── assets/
-│   └── logo.svg              # 插件矢量图标
+│   ├── logo.svg              # 插件矢量图标
+│   └── screenshots/          # README 界面截图
 ├── server/
 │   ├── data_engine.py        # transcript.jsonl 解析、汇总、日历与额度聚合
 │   ├── live_quota.py         # 读取桌面端本机余量和重置时间
