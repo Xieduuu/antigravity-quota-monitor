@@ -1,0 +1,21 @@
+# Python 缓存与构建产物
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+
+# 本地运行状态、日志与用户校准数据（切勿提交）
+.local_data/
+*.db
+*.sqlite
+*.sqlite3
+state.json
+active_session.json
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

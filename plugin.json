@@ -1,0 +1,18 @@
+{
+  "name": "antigravity-quota-monitor",
+  "displayName": "Antigravity Quota & Context Monitor",
+  "version": "0.1.0",
+  "description": "Zero-token local monitor for Antigravity desktop: real-time session context ring, exact cache hit rate and token breakdown, monthly usage heatmap calendar, and live Gemini / Claude & GPT / Argon quotas.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "Xieduuu",
+    "url": "https://github.com/Xieduuu"
+  },
+  "homepage": "https://github.com/Xieduuu/antigravity-quota-monitor",
+  "repository": "https://github.com/Xieduuu/antigravity-quota-monitor",
+  "suggestedPrompts": [
+    "打开额度与上下文监控面板",
+    "查看当前会话上下文占用与缓存命中率",
+    "打开全局用量与额度统计总览"
+  ]
+}
