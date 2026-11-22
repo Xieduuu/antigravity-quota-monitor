@@ -34,7 +34,7 @@ from updater import apply_update, check_for_updates
 APP_RESOURCE_URI = "ui://quota-monitor/app.html"
 APP_MIME_TYPE = "text/html;profile=mcp-app"
 SERVER_NAME = "antigravity-quota-monitor"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 
 
 def load_app_html() -> str:

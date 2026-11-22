@@ -83,6 +83,66 @@ QUOTA_BUCKETS: List[Dict[str, Any]] = [
 # 单步耗时上限（秒），用于过滤用户长时间离开键盘造成的空窗间隔
 MAX_STEP_GAP_SEC = 120.0
 
+# 公开 API 参考单价（USD / 1M tokens）：(未缓存输入, 缓存读取, 输出)
+# 注：Antigravity 订阅内新模型无公开独立价目表时，按同档位公开 API 价目作等效估值参考
+MODEL_PRICING_PER_1M: List[Tuple[Tuple[str, ...], Tuple[float, float, float]]] = [
+    (("opus",), (15.0, 1.5, 75.0)),
+    (("sonnet",), (3.0, 0.3, 15.0)),
+    (("haiku",), (0.8, 0.08, 4.0)),
+    (("flash", "hydrogen"), (0.15, 0.0375, 0.60)),
+    (("argon", "neon", "carbon", "orchestrator", "gemini", "pro"), (1.25, 0.3125, 10.0)),
+    (("gpt-oss", "gpt-4o"), (2.5, 1.25, 10.0)),
+    (("gpt", "openai", "o1-", "o3-", "o4-"), (2.0, 0.5, 10.0)),
+]
+DEFAULT_PRICING_PER_1M: Tuple[float, float, float] = (1.25, 0.3125, 10.0)
+
+
+def get_model_pricing(model_name: Optional[str]) -> Tuple[float, float, float]:
+    """返回模型的参考 API 单价 (uncached_in, cache_read, output)，单位 USD / 1M tokens。"""
+    low = (model_name or "").lower()
+    for keywords, prices in MODEL_PRICING_PER_1M:
+        if any(k in low for k in keywords):
+            return prices
+    return DEFAULT_PRICING_PER_1M
+
+
+def estimate_cost_usd(
+    model_name: Optional[str],
+    uncached_input: int,
+    cache_read: int,
+    output: int,
+) -> Tuple[float, float]:
+    """
+    计算等效 API 美元价值与 Prompt Cache 节省金额：
+    返回 (est_cost_usd, cache_saved_usd)。
+    """
+    p_in, p_cache, p_out = get_model_pricing(model_name)
+    actual = (uncached_input * p_in + cache_read * p_cache + output * p_out) / 1_000_000.0
+    without_cache = ((uncached_input + cache_read) * p_in + output * p_out) / 1_000_000.0
+    saved = max(0.0, without_cache - actual)
+    return actual, saved
+
+
+def compute_context_health(used_tokens: int) -> Dict[str, str]:
+    """根据当前上下文 Token 规模划分健康区间并给出 /compact 建议。"""
+    if used_tokens > 250_000:
+        return {
+            "level": "high",
+            "label": "高耗能 · 建议压缩",
+            "hint": "上下文已超 250K，每轮重读开销高，建议运行 /compact 或新开会话",
+        }
+    if used_tokens >= 100_000:
+        return {
+            "level": "bloated",
+            "label": "建议 /compact",
+            "hint": "上下文已超 100K，建议适时运行 /compact 降低 5h 额度消耗",
+        }
+    return {
+        "level": "optimal",
+        "label": "健康",
+        "hint": "上下文规模健康（< 100K）",
+    }
+
 
 def utc_now() -> dt.datetime:
     """返回当前 UTC 带时区时间对象。"""
@@ -253,6 +313,15 @@ class ParsedConversation:
     # 分子分母严格 1:1 配对后的输出统计（仅统计紧接系统/工具步骤的模型回复，排除人工等待与末轮空窗）
     timed_output_tokens: int = 0
     timed_model_sec: float = 0.0
+    # 上一轮上下文净增（当前上下文 - 上一轮结束时上下文）
+    last_turn_context_delta: int = 0
+    # 等效 API 美元估值与缓存节省金额
+    est_cost_usd: float = 0.0
+    cache_saved_usd: float = 0.0
+    # 子智能体关联信息（来自 conversation_summaries.db）
+    parent_conversation_id: str = ""
+    agent_name: str = ""
+    nesting_depth: int = 0
     events: List[StepUsageEvent] = field(default_factory=list)
 
 
@@ -335,12 +404,13 @@ class QuotaMonitorEngine:
             return {}
         return data
 
-    def _load_official_titles(self) -> Dict[str, str]:
+    def _load_conversation_metadata(self) -> Dict[str, Dict[str, Any]]:
         """
-        以只读方式从 Antigravity 本地 conversation_summaries.db 读取官方对话名称。
-        若数据库不存在或被锁定则优雅降级，绝不阻塞主流程。
+        以只读方式从 Antigravity 本地 conversation_summaries.db 读取官方对话名称
+        与父子会话关系（parent_conversation_id / agent_name / nesting_depth）。
+        若数据库不存在、字段精简或被锁定则优雅降级，绝不阻塞主流程。
         """
-        titles: Dict[str, str] = {}
+        meta: Dict[str, Dict[str, Any]] = {}
         db_candidates: List[Path] = []
         for brain_dir in self.brain_dirs:
             cand = brain_dir.parent / "conversation_summaries.db"
@@ -356,26 +426,50 @@ class QuotaMonitorEngine:
 
             conn: Optional[sqlite3.Connection] = None
             try:
-                # 优先普通只读打开（可读 WAL 最新写入）；若遇权限或锁冲突再回退 immutable 只读
                 uri_ro = f"file:{db_path.as_posix()}?mode=ro"
                 try:
                     conn = sqlite3.connect(uri_ro, uri=True, timeout=0.8)
-                    rows = conn.execute(
-                        "SELECT conversation_id, title FROM conversation_summaries WHERE title != ''"
-                    ).fetchall()
+                    cols = {r[1] for r in conn.execute("PRAGMA table_info(conversation_summaries)").fetchall()}
                 except sqlite3.Error:
                     if conn is not None:
                         conn.close()
                         conn = None
                     uri_imm = f"file:{db_path.as_posix()}?mode=ro&immutable=1"
                     conn = sqlite3.connect(uri_imm, uri=True, timeout=0.8)
-                    rows = conn.execute(
-                        "SELECT conversation_id, title FROM conversation_summaries WHERE title != ''"
-                    ).fetchall()
+                    cols = {r[1] for r in conn.execute("PRAGMA table_info(conversation_summaries)").fetchall()}
 
-                for cid, title in rows:
-                    if cid and title:
-                        titles[str(cid)] = str(title).strip()
+                if "conversation_id" in cols and "title" in cols:
+                    sel_parent = "parent_conversation_id" if "parent_conversation_id" in cols else "''"
+                    sel_agent = "agent_name" if "agent_name" in cols else "''"
+                    sel_depth = "nesting_depth" if "nesting_depth" in cols else "0"
+                    rows = conn.execute(
+                        f"SELECT conversation_id, title, {sel_parent}, {sel_agent}, {sel_depth} "
+                        "FROM conversation_summaries"
+                    ).fetchall()
+                    for cid, title, parent_id, agent_name, depth in rows:
+                        if not cid:
+                            continue
+                        cid_s = str(cid)
+                        meta[cid_s] = {
+                            "title": str(title or "").strip(),
+                            "parentConversationId": str(parent_id or "").strip(),
+                            "agentName": str(agent_name or "").strip(),
+                            "nestingDepth": int(depth or 0),
+                        }
+
+                # 兼容 conversation_parents 辅助表补全父子关系
+                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                if "conversation_parents" in tables:
+                    for cid, parent_id in conn.execute(
+                        "SELECT conversation_id, parent_id FROM conversation_parents"
+                    ).fetchall():
+                        if cid and parent_id:
+                            entry = meta.setdefault(
+                                str(cid),
+                                {"title": "", "parentConversationId": "", "agentName": "", "nestingDepth": 1},
+                            )
+                            if not entry["parentConversationId"]:
+                                entry["parentConversationId"] = str(parent_id).strip()
             except Exception:
                 continue
             finally:
@@ -384,7 +478,7 @@ class QuotaMonitorEngine:
                         conn.close()
                     except Exception:
                         pass
-        return titles
+        return meta
 
     def _find_transcript_files(self) -> List[Tuple[str, Path]]:
         """遍历所有可访问的 brain 目录，收集 (conversation_id, transcript_path)。"""
@@ -466,6 +560,11 @@ class QuotaMonitorEngine:
         tool_dur = 0.0
         timed_output_tokens = 0
         timed_model_sec = 0.0
+        turn_end_contexts: List[int] = []
+        seen_planner_in_turn = False
+        seen_user_step_indices: set = set()
+        est_cost_usd = 0.0
+        cache_saved_usd = 0.0
         dialogue_est = 0
         events: List[StepUsageEvent] = []
 
@@ -507,6 +606,15 @@ class QuotaMonitorEngine:
                         prev_output_tokens = cur_out_tok
 
                     if stype == "USER_INPUT":
+                        step_idx = step.get("step_index")
+                        if step_idx is not None and step_idx in seen_user_step_indices:
+                            continue
+                        if step_idx is not None:
+                            seen_user_step_indices.add(step_idx)
+                        # 新一轮开始前，记下上一轮结束时的上下文总量，用于计算本轮上下文净增
+                        if seen_planner_in_turn:
+                            turn_end_contexts.append(latest_in + latest_cache + latest_out)
+                            seen_planner_in_turn = False
                         turn_count += 1
                         content = str(step.get("content") or "")
                         # 清理 Antigravity 系统包裹标签，提取纯净用户输入
@@ -533,6 +641,7 @@ class QuotaMonitorEngine:
                         out_tok = int(step.get("output_tokens") or 0)
 
                         if in_tok > 0 or cache_tok > 0 or out_tok > 0:
+                            seen_planner_in_turn = True
                             if first_planner_in == 0:
                                 first_planner_in = in_tok + cache_tok
                             latest_in = in_tok
@@ -541,6 +650,9 @@ class QuotaMonitorEngine:
                             sum_in += in_tok
                             sum_cache += cache_tok
                             sum_out += out_tok
+                            step_cost, step_saved = estimate_cost_usd(model, in_tok, cache_tok, out_tok)
+                            est_cost_usd += step_cost
+                            cache_saved_usd += step_saved
                             if ts is not None:
                                 events.append(
                                     StepUsageEvent(
@@ -565,6 +677,14 @@ class QuotaMonitorEngine:
             return None
 
         context_tokens = latest_in + latest_cache + latest_out
+        if seen_planner_in_turn and context_tokens > 0:
+            turn_end_contexts.append(context_tokens)
+        if len(turn_end_contexts) >= 2:
+            last_turn_delta = turn_end_contexts[-1] - turn_end_contexts[-2]
+        elif len(turn_end_contexts) == 1:
+            last_turn_delta = turn_end_contexts[0]
+        else:
+            last_turn_delta = 0
         if context_tokens > 0:
             raw_sys = max(0, first_planner_in - first_user_est)
             est_sys = min(raw_sys, context_tokens)
@@ -603,20 +723,28 @@ class QuotaMonitorEngine:
             tool_duration_sec=round(tool_dur, 1),
             timed_output_tokens=timed_output_tokens,
             timed_model_sec=round(timed_model_sec, 1),
+            last_turn_context_delta=last_turn_delta,
+            est_cost_usd=round(est_cost_usd, 4),
+            cache_saved_usd=round(cache_saved_usd, 4),
             events=events,
         )
         self._cache[cache_key] = parsed
         return parsed
 
     def scan_all_conversations(self) -> List[ParsedConversation]:
-        """扫描并解析全部可见会话，合并官方对话名称后按最后更新时间倒序排列。"""
-        official_titles = self._load_official_titles()
+        """扫描并解析全部可见会话，合并官方对话名称与子智能体层级后按更新时间倒序排列。"""
+        conv_meta = self._load_conversation_metadata()
         results: List[ParsedConversation] = []
         for cid, path in self._find_transcript_files():
             parsed = self._parse_transcript(cid, path)
             if parsed is not None:
-                if cid in official_titles and official_titles[cid]:
-                    parsed.title = official_titles[cid]
+                info = conv_meta.get(cid)
+                if info:
+                    if info.get("title"):
+                        parsed.title = info["title"]
+                    parsed.parent_conversation_id = info.get("parentConversationId") or ""
+                    parsed.agent_name = info.get("agentName") or ""
+                    parsed.nesting_depth = int(info.get("nestingDepth") or 0)
                 results.append(parsed)
         results.sort(
             key=lambda c: c.last_ts.timestamp() if c.last_ts else 0.0,
@@ -638,8 +766,9 @@ class QuotaMonitorEngine:
         live_entry: Any,
         external_entry: Any,
         now: dt.datetime,
-    ) -> Dict[str, Any]:
-        """计算单个额度桶的本地用量，并按可用来源显示余量。"""
+        history_map: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], bool]:
+        """计算单个额度桶的本地用量、余量、上次消耗变化与节奏评估。"""
         group = bucket_def["group"]
         window_hours = bucket_def["windowHours"]
         window_start = now - dt.timedelta(hours=window_hours)
@@ -649,12 +778,16 @@ class QuotaMonitorEngine:
         win_in = sum(e.input_tokens for e in window_events)
         win_cache = sum(e.cache_read_tokens for e in window_events)
         win_out = sum(e.output_tokens for e in window_events)
-        quota = {
+        quota: Dict[str, Any] = {
             "source": "unavailable",
             "remainingPct": None,
             "resetsAt": None,
             "resetsInSec": None,
+            "lastBurnPct": None,
+            "estTurnsLeft": None,
+            "pace": None,
         }
+        raw_pct: Optional[float] = None
         for source_name, entry in (("antigravity", live_entry), ("external", external_entry)):
             if not isinstance(entry, dict) or isinstance(entry.get("remainingPct"), bool):
                 continue
@@ -668,31 +801,99 @@ class QuotaMonitorEngine:
             if source_name == "external" and reset_at is not None and reset_at <= now:
                 continue
             resets_in_sec = int((reset_at - now).total_seconds()) if reset_at is not None and reset_at > now else None
+            raw_pct = max(0.0, min(100.0, pct))
             quota = {
                 "source": source_name,
-                "remainingPct": round(max(0.0, min(100.0, pct)), 1),
+                "remainingPct": round(raw_pct, 1),
                 "resetsAt": reset_at.isoformat() if reset_at is not None else None,
                 "resetsInSec": resets_in_sec,
+                "lastBurnPct": None,
+                "estTurnsLeft": None,
+                "pace": None,
             }
             break
 
-        return {
-            "id": bucket_def["id"],
-            "group": group,
-            "groupLabel": bucket_def["groupLabel"],
-            "label": bucket_def["label"],
-            "shortLabel": bucket_def["shortLabel"],
-            "windowHours": window_hours,
-            "primary": bucket_def["primary"],
-            "windowUsage": {
-                "totalTokens": win_in + win_cache + win_out,
-                "uncachedInput": win_in,
-                "cacheRead": win_cache,
-                "output": win_out,
-                "calls": len(window_events),
+        # 追踪跨快照的上次消耗（lastBurnPct）与预计剩余轮数（estTurnsLeft）
+        history_dirty = False
+        bid = bucket_def["id"]
+        if raw_pct is not None:
+            rec = history_map.get(bid)
+            if not isinstance(rec, dict):
+                rec = {}
+            prev_pct = rec.get("lastPct")
+            prev_reset = rec.get("lastResetAt")
+            cur_reset = quota["resetsAt"]
+            recent_burns: List[float] = [
+                float(x) for x in (rec.get("recentBurns") or []) if isinstance(x, (int, float)) and x > 0
+            ][-9:]
+            last_burn = rec.get("lastBurnPct")
+
+            # 检测新周期重置或余量回升
+            window_reset = (
+                (prev_reset and cur_reset and prev_reset != cur_reset)
+                or (isinstance(prev_pct, (int, float)) and raw_pct > float(prev_pct) + 1.0)
+            )
+            if window_reset:
+                recent_burns = []
+                last_burn = None
+                history_dirty = True
+            elif isinstance(prev_pct, (int, float)):
+                drop = float(prev_pct) - raw_pct
+                if drop >= 0.01:
+                    last_burn = round(drop, 2)
+                    recent_burns.append(last_burn)
+                    recent_burns = recent_burns[-10:]
+                    history_dirty = True
+
+            if prev_pct is None or abs(float(prev_pct) - raw_pct) >= 0.0001 or prev_reset != cur_reset:
+                history_map[bid] = {
+                    "lastPct": round(raw_pct, 4),
+                    "lastResetAt": cur_reset,
+                    "lastBurnPct": last_burn,
+                    "recentBurns": recent_burns,
+                }
+                history_dirty = True
+
+            if isinstance(last_burn, (int, float)) and last_burn > 0:
+                quota["lastBurnPct"] = round(float(last_burn), 2)
+            if recent_burns and raw_pct > 0:
+                avg_burn = sum(recent_burns) / len(recent_burns)
+                if avg_burn >= 0.01:
+                    quota["estTurnsLeft"] = max(0, int(raw_pct / avg_burn))
+
+            # 节奏对比（已过窗口时间占比 vs 已耗额度占比）
+            if quota["resetsInSec"] is not None and window_hours > 0:
+                total_win_sec = window_hours * 3600.0
+                elapsed_ratio = max(0.0, min(1.0, 1.0 - quota["resetsInSec"] / total_win_sec))
+                used_ratio = max(0.0, min(1.0, (100.0 - raw_pct) / 100.0))
+                if used_ratio >= 0.05 and elapsed_ratio >= 0.03:
+                    if used_ratio > elapsed_ratio * 1.25 + 0.05:
+                        quota["pace"] = {"status": "fast", "label": "消耗偏快"}
+                    elif used_ratio > elapsed_ratio * 0.95:
+                        quota["pace"] = {"status": "moderate", "label": "节奏适中"}
+                    else:
+                        quota["pace"] = {"status": "safe", "label": "节奏稳健"}
+
+        return (
+            {
+                "id": bid,
+                "group": group,
+                "groupLabel": bucket_def["groupLabel"],
+                "label": bucket_def["label"],
+                "shortLabel": bucket_def["shortLabel"],
+                "windowHours": window_hours,
+                "primary": bucket_def["primary"],
+                "windowUsage": {
+                    "totalTokens": win_in + win_cache + win_out,
+                    "uncachedInput": win_in,
+                    "cacheRead": win_cache,
+                    "output": win_out,
+                    "calls": len(window_events),
+                },
+                "quota": quota,
             },
-            "quota": quota,
-        }
+            history_dirty,
+        )
 
     def update_preferences(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         """更新并保存用户界面偏好设置。"""
@@ -751,7 +952,27 @@ class QuotaMonitorEngine:
             if hint_cid:
                 selected_conv = next((c for c in conversations if c.conversation_id == hint_cid), None)
         if selected_conv is None and conversations:
-            selected_conv = conversations[0]
+            # 默认优先选择主会话（非派生子代理），若全为子代理再回退第一个
+            selected_conv = next((c for c in conversations if not c.parent_conversation_id), conversations[0])
+
+        # 构建父子会话索引，汇总当前会话派生的全部子智能体消耗
+        children_by_parent: Dict[str, List[ParsedConversation]] = {}
+        for c in conversations:
+            if c.parent_conversation_id:
+                children_by_parent.setdefault(c.parent_conversation_id, []).append(c)
+
+        def collect_descendants(root_cid: str) -> List[ParsedConversation]:
+            found_list: List[ParsedConversation] = []
+            visited = {root_cid}
+            stack = list(children_by_parent.get(root_cid, []))
+            while stack:
+                node = stack.pop(0)
+                if node.conversation_id in visited:
+                    continue
+                visited.add(node.conversation_id)
+                found_list.append(node)
+                stack.extend(children_by_parent.get(node.conversation_id, []))
+            return found_list
 
         session_payload: Optional[Dict[str, Any]] = None
         if selected_conv is not None:
@@ -764,6 +985,25 @@ class QuotaMonitorEngine:
                 if selected_conv.timed_model_sec >= 2.0
                 else 0.0
             )
+            cost_no_cache = selected_conv.est_cost_usd + selected_conv.cache_saved_usd
+            cache_saved_pct = round((selected_conv.cache_saved_usd / cost_no_cache * 100.0), 1) if cost_no_cache > 0 else 0.0
+
+            descendants = collect_descendants(selected_conv.conversation_id)
+            sub_total = sum(d.sum_uncached_input + d.sum_cache_read + d.sum_output for d in descendants)
+            sub_cost = sum(d.est_cost_usd for d in descendants)
+            sub_items = [
+                {
+                    "conversationId": d.conversation_id,
+                    "agentName": d.agent_name or "subagent",
+                    "title": d.title,
+                    "modelDisplay": format_model_display_name(d.latest_model),
+                    "totalTokens": d.sum_uncached_input + d.sum_cache_read + d.sum_output,
+                    "calls": d.planner_calls,
+                    "estCostUsd": round(d.est_cost_usd, 3),
+                }
+                for d in descendants
+            ]
+
             session_payload = {
                 "conversationId": selected_conv.conversation_id,
                 "title": selected_conv.title,
@@ -775,6 +1015,8 @@ class QuotaMonitorEngine:
                     "usedTokens": selected_conv.context_tokens,
                     "limitTokens": ctx_limit,
                     "usedPct": round(ctx_pct, 1),
+                    "lastTurnDelta": selected_conv.last_turn_context_delta,
+                    "health": compute_context_health(selected_conv.context_tokens),
                     "latestInput": selected_conv.latest_input_tokens,
                     "latestCacheRead": selected_conv.latest_cache_read_tokens,
                     "latestOutput": selected_conv.latest_output_tokens,
@@ -799,14 +1041,26 @@ class QuotaMonitorEngine:
                     "output": selected_conv.sum_output,
                     "total": selected_conv.sum_uncached_input + selected_conv.sum_cache_read + selected_conv.sum_output,
                     "cacheHitPct": round(cache_hit_pct, 1),
+                    "estCostUsd": round(selected_conv.est_cost_usd, 3),
+                    "cacheSavedUsd": round(selected_conv.cache_saved_usd, 3),
+                    "cacheSavedPct": cache_saved_pct,
+                },
+                "subagents": {
+                    "count": len(descendants),
+                    "totalTokens": sub_total,
+                    "estCostUsd": round(sub_cost, 3),
+                    "items": sub_items,
                 },
             }
 
         today_date = now_local.date()
         today_in = today_cache = today_out = today_calls = 0
+        today_cost = today_saved = 0.0
         month_total = 0
+        month_cost = month_saved = 0.0
         all_total = 0
         all_in = all_cache = all_out = 0
+        all_cost = all_saved = 0.0
 
         _, days_in_month = calendar.monthrange(target_year, target_month)
         daily_map: Dict[int, Dict[str, int]] = {
@@ -818,19 +1072,26 @@ class QuotaMonitorEngine:
         for ev in all_events:
             ev_local = ev.timestamp.astimezone(local_tz)
             ev_tot = ev.total_tokens
+            ev_cost, ev_saved = estimate_cost_usd(ev.model, ev.input_tokens, ev.cache_read_tokens, ev.output_tokens)
             all_total += ev_tot
             all_in += ev.input_tokens
             all_cache += ev.cache_read_tokens
             all_out += ev.output_tokens
+            all_cost += ev_cost
+            all_saved += ev_saved
 
             if ev_local.date() == today_date:
                 today_in += ev.input_tokens
                 today_cache += ev.cache_read_tokens
                 today_out += ev.output_tokens
                 today_calls += 1
+                today_cost += ev_cost
+                today_saved += ev_saved
 
             if ev_local.year == now_local.year and ev_local.month == now_local.month:
                 month_total += ev_tot
+                month_cost += ev_cost
+                month_saved += ev_saved
 
             if ev_local.year == target_year and ev_local.month == target_month:
                 slot = daily_map[ev_local.day]
@@ -896,28 +1157,40 @@ class QuotaMonitorEngine:
         live_buckets = self.live_quota.read(force_refresh=force_quota_refresh)
         external_buckets = self.load_external_quota().get("buckets", {})
         quota_now = utc_now()
-        buckets = [
-            self._compute_bucket_metrics(
+        history_map = state.setdefault("quotaHistory", {})
+        buckets: List[Dict[str, Any]] = []
+        any_history_dirty = False
+        for bucket in QUOTA_BUCKETS:
+            b_metric, dirty = self._compute_bucket_metrics(
                 bucket,
                 all_events,
                 live_buckets.get(bucket["id"]),
                 external_buckets.get(bucket["id"]),
                 quota_now,
+                history_map,
             )
-            for bucket in QUOTA_BUCKETS
-        ]
+            buckets.append(b_metric)
+            if dirty:
+                any_history_dirty = True
+        if any_history_dirty:
+            self.save_state(state)
         sources_used = {bucket["quota"]["source"] for bucket in buckets}
         quota_source = next((name for name in ("antigravity", "external") if name in sources_used), "unavailable")
 
+        # 会话下拉列表优先展示主会话，避免被派生子代理刷屏
+        top_level_convs = [c for c in conversations if not c.parent_conversation_id]
+        if selected_conv is not None and selected_conv.parent_conversation_id and selected_conv not in top_level_convs:
+            top_level_convs.insert(0, selected_conv)
         recent_sessions = [
             {
                 "conversationId": c.conversation_id,
                 "title": c.title,
                 "modelDisplay": format_model_display_name(c.latest_model),
                 "contextTokens": c.context_tokens,
+                "subagentCount": len(children_by_parent.get(c.conversation_id, [])),
                 "lastUpdated": c.last_ts.isoformat() if c.last_ts else None,
             }
-            for c in conversations[:25]
+            for c in top_level_convs[:25]
         ]
 
         models_list = sorted(model_totals.values(), key=lambda x: x["totalTokens"], reverse=True)
@@ -938,11 +1211,17 @@ class QuotaMonitorEngine:
                 "todayTokens": today_total,
                 "todayCalls": today_calls,
                 "todayCacheHitPct": today_cache_hit,
+                "todayCostUsd": round(today_cost, 2),
+                "todayCacheSavedUsd": round(today_saved, 2),
                 "monthTokens": month_total,
+                "monthCostUsd": round(month_cost, 2),
+                "monthCacheSavedUsd": round(month_saved, 2),
                 "allTimeTokens": all_total,
                 "allTimeUncachedInput": all_in,
                 "allTimeCacheRead": all_cache,
                 "allTimeOutput": all_out,
+                "allTimeCostUsd": round(all_cost, 2),
+                "allTimeCacheSavedUsd": round(all_saved, 2),
             },
             "calendar": {
                 "year": target_year,

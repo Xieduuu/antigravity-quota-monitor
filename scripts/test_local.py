@@ -469,6 +469,75 @@ def test_updater_safe_apply() -> None:
     print("[PASS] 插件安全更新校验、备份与前后端热更新判定")
 
 
+def test_v030_actionable_metrics() -> None:
+    """测试 Issue #2 的 4 项进阶指标：上次消耗与节奏、子代理聚合、上下文健康与本轮净增、等效 API 费用与缓存节省。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        brain = tmp_path / "brain"
+        data_dir = tmp_path / "data"
+        now = dt.datetime.now(dt.timezone.utc)
+
+        parent_id = "parent-conv-001"
+        child_id = "child-subagent-001"
+        make_sample_transcript(brain / parent_id / ".system_generated" / "logs" / "transcript.jsonl", now)
+        make_sample_transcript(brain / child_id / ".system_generated" / "logs" / "transcript.jsonl", now)
+
+        # 构造带父子关系的 conversation_summaries.db
+        db_path = tmp_path / "conversation_summaries.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE conversation_summaries ("
+            "conversation_id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', "
+            "parent_conversation_id TEXT NOT NULL DEFAULT '', agent_name TEXT NOT NULL DEFAULT '', "
+            "nesting_depth INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.execute(
+            "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?)",
+            (parent_id, "主任务会话", "", "", 0),
+        )
+        conn.execute(
+            "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?)",
+            (child_id, "GitHub Issue Reader", parent_id, "browser", 1),
+        )
+        conn.commit()
+        conn.close()
+
+        # 模拟连续两次外部额度快照：90.0% -> 88.5%，验证 lastBurnPct=1.5 与 pace
+        ext_file = data_dir / "external_quota.json"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        resets_at = (now + dt.timedelta(hours=2)).isoformat()  # 5h 窗口已过 60% 时间
+        ext_file.write_text(
+            json.dumps({"updatedAt": now.isoformat(), "buckets": {"gemini_5h": {"remainingPct": 90.0, "resetsAt": resets_at}}}),
+            encoding="utf-8",
+        )
+
+        engine = QuotaMonitorEngine(data_dir=data_dir, brain_dirs=[brain])
+        engine.live_quota.read = lambda force_refresh=False: {}
+        d1 = engine.build_dashboard()
+        assert d1["session"]["conversationId"] == parent_id
+        assert d1["session"]["subagents"]["count"] == 1
+        assert d1["session"]["subagents"]["items"][0]["agentName"] == "browser"
+        assert d1["session"]["subagents"]["totalTokens"] == 67600
+        assert d1["session"]["context"]["health"]["level"] == "optimal"
+        assert d1["session"]["tokens"]["estCostUsd"] > 0
+        assert d1["session"]["tokens"]["cacheSavedUsd"] > 0
+        assert d1["usageSummary"]["todayCostUsd"] > 0
+        assert d1["usageSummary"]["todayCacheSavedUsd"] > 0
+
+        # 第二次刷新余量降至 88.5%（消耗 1.5%）
+        ext_file.write_text(
+            json.dumps({"updatedAt": now.isoformat(), "buckets": {"gemini_5h": {"remainingPct": 88.5, "resetsAt": resets_at}}}),
+            encoding="utf-8",
+        )
+        d2 = engine.build_dashboard()
+        g5 = next(b for b in d2["quotas"]["buckets"] if b["id"] == "gemini_5h")
+        assert g5["quota"]["lastBurnPct"] == 1.5
+        assert g5["quota"]["estTurnsLeft"] == int(88.5 / 1.5)
+        assert g5["quota"]["pace"]["status"] == "safe"  # 已过 60% 时间仅耗 11.5% 额度 -> 节奏稳健
+
+    print("[PASS] v0.3.0 进阶指标（上次消耗与节奏、子代理聚合、上下文健康、等效 API 费用与缓存节省）")
+
+
 if __name__ == "__main__":
     test_classification()
     test_engine_and_quota_window()
@@ -477,4 +546,5 @@ if __name__ == "__main__":
     test_manual_sync_bypasses_cache()
     test_mcp_stdio_protocol()
     test_updater_safe_apply()
+    test_v030_actionable_metrics()
     print("\n全部测试通过！")

@@ -568,11 +568,117 @@
       justify-content: space-between;
       font-size: 11.5px;
       color: var(--text-secondary);
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       padding: 6px 10px;
       background: var(--bg-elevated);
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-subtle);
+    }
+
+    .cost-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .cost-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 7px 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .cost-card-label {
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    .cost-card-val {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .cost-card-val.emerald { color: var(--emerald); }
+
+    .cost-card-sub {
+      font-size: 10.3px;
+      color: var(--text-secondary);
+    }
+
+    /* 派生子代理折叠条 */
+    .subagent-box {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .subagent-head {
+      width: 100%;
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 7px 10px;
+      font-family: inherit;
+      font-size: 11.3px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .subagent-head:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .subagent-list {
+      display: none;
+      border-top: 1px dashed var(--border-subtle);
+      padding: 5px 10px 7px;
+    }
+
+    .subagent-box.open .subagent-list {
+      display: block;
+    }
+
+    .subagent-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 3px 0;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .subagent-item-name {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-cost-bar {
+      margin-top: 8px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11.2px;
+      color: var(--text-secondary);
     }
 
     /* 每日用量日历 */
@@ -754,12 +860,10 @@
     .ctx-model-line {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 6px;
       font-size: 11px;
       color: var(--text-muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .session-bar {
@@ -1256,6 +1360,7 @@
           </div>
           <div class="summary-grid" id="summaryGrid"></div>
           <div class="cache-row" id="todayCacheRow"></div>
+          <div class="cost-grid" id="globalCostGrid"></div>
 
           <div class="cal-header">
             <span class="section-label" style="margin: 0;">当月每日用量</span>
@@ -1344,7 +1449,7 @@
         <span class="badge tabular" id="updateBadge">GitHub Release</span>
       </div>
       <div class="update-ver-row tabular" id="updateVerRow">
-        <span>当前版本：<strong>v0.2.0</strong></span>
+        <span>当前版本：<strong>v0.3.0</strong></span>
         <span id="updateLatestText" style="color:var(--text-muted)">检查中…</span>
       </div>
       <div class="update-status" id="updateStatusText">正在连接 GitHub 查询最新版本…</div>
@@ -1560,6 +1665,14 @@
         return "var(--rose)";
       }
 
+      function fmtUsd(v) {
+        const n = Number(v || 0);
+        if (n <= 0) return "$0.00";
+        if (n < 0.01) return "<$0.01";
+        if (n >= 100) return "$" + n.toFixed(1);
+        return "$" + n.toFixed(2);
+      }
+
       function escHtml(str) {
         return String(str || "")
           .replace(/&/g, "&amp;")
@@ -1631,12 +1744,25 @@
 
           const offset = circum * (1 - Math.max(0, Math.min(100, pct)) / 100);
           const bigText = pct.toFixed(pct % 1 === 0 ? 0 : 1) + "%";
-          const subText = quota.resetsInSec === null ? usageText : "重置 " + fmtCountdown(quota.resetsInSec);
+          const baseSub = quota.resetsInSec === null ? usageText : "重置 " + fmtCountdown(quota.resetsInSec);
+          const burnSuffix = quota.lastBurnPct ? (" · -" + quota.lastBurnPct.toFixed(quota.lastBurnPct >= 1 ? 1 : 2) + "%") : "";
+          const subText = baseSub + burnSuffix;
+          const subTooltip = [
+            baseSub,
+            quota.lastBurnPct ? ("上次变动 -" + quota.lastBurnPct + "%") : "",
+            quota.estTurnsLeft !== null ? ("按近期均耗预计还能跑 ~" + quota.estTurnsLeft + " 轮") : "",
+          ].filter(Boolean).join(" · ");
+
+          let paceBadge = "";
+          if (quota.pace && quota.pace.label) {
+            const pCls = quota.pace.status === "fast" ? "danger" : (quota.pace.status === "moderate" ? "warn" : "ok");
+            paceBadge = `<span class="badge ${pCls}" style="font-size:9.8px;padding:1px 5px;">${escHtml(quota.pace.label)}</span>`;
+          }
 
           return `
             <div class="quota-tile">
               <div class="quota-tile-top">
-                <span class="quota-label">${escHtml(b.label)}</span>
+                <span class="quota-label" style="display:inline-flex;align-items:center;gap:5px;">${escHtml(b.label)}${paceBadge}</span>
                 ${syncButton}
               </div>
               <div class="quota-tile-mid">
@@ -1649,7 +1775,7 @@
                 </div>
                 <div class="quota-meta">
                   <div class="quota-big tabular">${escHtml(bigText)}</div>
-                  <div class="quota-sub tabular" title="${escHtml(subText)}">${escHtml(subText)}</div>
+                  <div class="quota-sub tabular" title="${escHtml(subTooltip)}">${escHtml(subText)}</div>
                 </div>
               </div>
               <div class="quota-tile-foot tabular">
@@ -1734,6 +1860,18 @@
         document.getElementById("todayCacheRow").innerHTML = `
           <span>今日缓存命中率</span>
           <strong class="tabular" style="color:${u.todayCacheHitPct !== null ? "var(--emerald)" : "var(--text-muted)"}">${hitStr}</strong>
+        `;
+        document.getElementById("globalCostGrid").innerHTML = `
+          <div class="cost-card tabular" title="按公开同档位 API 价目估算的等效价值（订阅制用户参考）">
+            <span class="cost-card-label">等效 API 价值（今日）</span>
+            <span class="cost-card-val">~${fmtUsd(u.todayCostUsd)}</span>
+            <span class="cost-card-sub">本月 ~${fmtUsd(u.monthCostUsd)} · 累计 ~${fmtUsd(u.allTimeCostUsd)}</span>
+          </div>
+          <div class="cost-card tabular" title="相比未命中 Prompt Cache 的等效节省金额">
+            <span class="cost-card-label">缓存已省（今日）</span>
+            <span class="cost-card-val emerald">~${fmtUsd(u.todayCacheSavedUsd)}</span>
+            <span class="cost-card-sub">本月 ~${fmtUsd(u.monthCacheSavedUsd)} · 累计 ~${fmtUsd(u.allTimeCacheSavedUsd)}</span>
+          </div>
         `;
       }
 
@@ -1871,13 +2009,31 @@
         document.getElementById("ctxRatioText").textContent =
           fmtTokens(ctx.usedTokens, true) + " / " + fmtTokens(ctx.limitTokens, true);
         document.getElementById("ctxModelBadge").textContent = sess.modelDisplay;
-        document.getElementById("ctxCacheQuick").textContent = "缓存命中 " + tok.cacheHitPct + "%";
+
+        // 保持客观展示：缓存命中 + 本轮上下文净变化（不主动弹出压缩劝导）
+        const delta = Number(ctx.lastTurnDelta || 0);
+        let deltaHtml = "";
+        if (delta !== 0) {
+          const sign = delta > 0 ? "+" : "-";
+          const dColor = delta < 0 ? "var(--emerald)" : "var(--text-secondary)";
+          deltaHtml = `<span style="color:${dColor}" title="上一轮上下文净变化">· 本轮 ${sign}${fmtTokens(Math.abs(delta), true)}</span>`;
+        }
+        document.getElementById("ctxCacheQuick").innerHTML =
+          `<span>缓存命中 ${tok.cacheHitPct}%</span>` +
+          (deltaHtml ? ` ${deltaHtml}` : "");
 
         const bd = ctx.breakdown || {};
         const denom = Math.max(ctx.usedTokens, 1);
         const wSys = Math.round(((bd.systemAndTools || 0) / denom) * 100);
         const wDial = Math.round(((bd.dialogue || 0) / denom) * 100);
         const wTools = Math.max(0, 100 - wSys - wDial);
+
+        const costBarHtml = `
+          <div class="session-cost-bar tabular" title="按公开同档位 API 价目估算的本会话等效价值与缓存节省">
+            <span>等效 API <strong>~${fmtUsd(tok.estCostUsd)}</strong></span>
+            <span style="color:var(--emerald)">缓存已省 <strong>~${fmtUsd(tok.cacheSavedUsd)}</strong>${tok.cacheSavedPct > 0 ? ` (省 ${tok.cacheSavedPct}%)` : ""}</span>
+          </div>
+        `;
 
         document.getElementById("contextDetailsBody").innerHTML = `
           <div class="section-label">
@@ -1934,6 +2090,7 @@
               <div class="stat-box-val">${fmtTokens(tok.output)} tok</div>
             </div>
           </div>
+          ${costBarHtml}
         `;
       }
 
@@ -2153,14 +2310,14 @@
         notesEl.style.display = "none";
         statusEl.className = "update-status";
         statusEl.textContent = "正在连接 GitHub 查询最新 Release…";
-        verRow.innerHTML = '<span>当前版本：<strong>v0.2.0</strong></span><span style="color:var(--text-muted)">查询中…</span>';
+        verRow.innerHTML = '<span>当前版本：<strong>v0.3.0</strong></span><span style="color:var(--text-muted)">查询中…</span>';
 
         try {
           const info = await callServerTool("app_check_update", {});
           if (!info || !info.ok) {
             statusEl.className = "update-status err";
             statusEl.textContent = (info && info.error) || "检查更新失败，请稍后重试。";
-            verRow.innerHTML = `<span>当前版本：<strong>v${escHtml((info && info.currentVersion) || "0.2.0")}</strong></span><span style="color:var(--rose)">查询失败</span>`;
+            verRow.innerHTML = `<span>当前版本：<strong>v${escHtml((info && info.currentVersion) || "0.3.0")}</strong></span><span style="color:var(--rose)">查询失败</span>`;
             return;
           }
           state.latestUpdateInfo = info;
@@ -2300,7 +2457,7 @@
         if (isEmbedded) {
           try {
             const initRes = await sendHostRequest("ui/initialize", {
-              appInfo: { name: "antigravity-quota-monitor", version: "0.2.0" },
+              appInfo: { name: "antigravity-quota-monitor", version: "0.3.0" },
               appCapabilities: {},
               protocolVersion: "2026-01-26",
             });

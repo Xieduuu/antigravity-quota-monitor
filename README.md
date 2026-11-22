@@ -72,23 +72,22 @@
 - 所有刷新与同步工具均声明为 `visibility: ["app"]`，对大模型完全不可见，面板刷新不占用对话上下文或模型额度。
 - **纯 Python 标准库后端 + 单文件自包含 HTML 前端**，无需 `pip install` 或 `npm install`。
 
-### 2. 三大额度池实时监控
+### 2. 三大额度池实时监控 & 消耗节奏感知
 - 完整对齐 Antigravity 原生 `View Usage` 分组：
-  - **外显常驻**：`Gemini Models` 的 **5h 限额** 与 **周限额**（极简进度环 + 剩余百分比 + 重置倒计时 + 本机窗口 Token 消耗）
+  - **外显常驻**：`Gemini Models` 的 **5h 限额** 与 **周限额**（极简进度环 + 剩余百分比 + 重置倒计时 + **上次变动消耗 / 预计剩余轮数 / 节奏标签**）
   - **点击展开**：`Claude & GPT models`（5h / 周限额）、`Gemini 4 Argon`（周限额）
 - 面板通过桌面端本机的 `RetrieveUserQuotaSummary` 接口读取剩余百分比与重置时间，支持点击「同步」跳过缓存立即刷新；同时支持外部额度文件 `external_quota.json` 作为补充来源。
 - 额度解析实现参考了 [Antigravity Model Usage](https://github.com/DYY-Studio/antigravity-model-usage/blob/main/sidecars/usage/main.mjs) 与 [CodexBar](https://github.com/steipete/CodexBar/blob/b41715f3e3fb85d01d807b9bd7a64d9bf384c6f8/Sources/CodexBarCore/Providers/Antigravity/AntigravityQuotaSummaryParser.swift)。
 
 ### 3. 当前会话上下文精确监控
 - 直接读取 Antigravity 本机 `transcript.jsonl` 与 `conversation_summaries.db`（只读），精确展示：
-  - **上下文占用环**：当前已用 Token 与百分比（`input_tokens + cache_read_tokens + output_tokens`）
+  - **上下文占用环 & 本轮净增**：实时显示当前占比与**本轮上下文净变化**（如 `本轮 +18.6K`），客观呈现上下文增长趋势
   - **上下文构成条**：系统提示词与工具定义 / 对话消息与思考内容 / 工具输出与历史上下文的可视化占比
-  - **会话统计**：模型调用次数、对话轮数 / 工具调用次数、平均输出速率
-  - **Token 用量明细**：缓存命中率（%）、未缓存输入、缓存读取、输出 Token
+  - **会话统计 & Token 用量明细**：模型调用次数、对话轮数 / 工具调用次数、平均输出速率、缓存命中率（%）、未缓存输入、缓存读取、输出 Token，以及**等效 API 美元价值与 Prompt Cache 节省金额**
 - 内置自定义暗色/浅色会话切换菜单，直接显示**官方对话名称**，默认自动跟随当前活跃会话，也可随时切换查看历史会话。
 
-### 4. 全局用量统计 & 当月每日热力日历
-- 聚合本机全部历史会话，展示 **今日 / 本月 / 累计** Token 用量、今日缓存命中率、按模型用量分布。
+### 4. 全局用量统计、等效 API 账单 & 当月每日热力日历
+- 聚合本机全部历史会话，展示 **今日 / 本月 / 累计** Token 用量、今日缓存命中率、**今日 / 本月 / 累计等效 API 美元估值与缓存已省金额**、按模型用量分布。
 - 内置 5 级热力日历，支持翻月查看与点击任意日期查看当日精确明细。
 
 ### 5. 双入口自适应布局 & 面板内一键更新
