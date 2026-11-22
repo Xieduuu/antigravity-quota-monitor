@@ -250,6 +250,9 @@ class ParsedConversation:
     tool_call_count: int
     model_duration_sec: float
     tool_duration_sec: float
+    # 分子分母严格 1:1 配对后的输出统计（仅统计紧接系统/工具步骤的模型回复，排除人工等待与末轮空窗）
+    timed_output_tokens: int = 0
+    timed_model_sec: float = 0.0
     events: List[StepUsageEvent] = field(default_factory=list)
 
 
@@ -445,6 +448,7 @@ class QuotaMonitorEngine:
         last_ts: Optional[dt.datetime] = None
         prev_ts: Optional[dt.datetime] = None
         prev_stype: str = ""
+        prev_output_tokens: int = 0
 
         latest_in = 0
         latest_cache = 0
@@ -460,6 +464,8 @@ class QuotaMonitorEngine:
         tool_call_count = 0
         model_dur = 0.0
         tool_dur = 0.0
+        timed_output_tokens = 0
+        timed_model_sec = 0.0
         dialogue_est = 0
         events: List[StepUsageEvent] = []
 
@@ -478,6 +484,7 @@ class QuotaMonitorEngine:
 
                     stype = str(step.get("type") or "")
                     ts = parse_iso_utc(step.get("created_at"))
+                    cur_out_tok = int(step.get("output_tokens") or 0) if stype == "PLANNER_RESPONSE" else 0
                     if ts is not None:
                         if first_ts is None or ts < first_ts:
                             first_ts = ts
@@ -489,10 +496,15 @@ class QuotaMonitorEngine:
                             if 0.0 <= gap <= MAX_STEP_GAP_SEC:
                                 if prev_stype == "PLANNER_RESPONSE":
                                     model_dur += gap
+                                    # 仅统计“模型回复后立即进入系统/工具步骤”的严格配对样本，排除人工思考间隔与整秒 0s 舍入误差
+                                    if stype != "USER_INPUT" and prev_output_tokens > 0 and gap >= 1.0:
+                                        timed_output_tokens += prev_output_tokens
+                                        timed_model_sec += gap
                                 elif prev_stype not in ("", "USER_INPUT"):
                                     tool_dur += gap
                         prev_ts = ts
                         prev_stype = stype
+                        prev_output_tokens = cur_out_tok
 
                     if stype == "USER_INPUT":
                         turn_count += 1
@@ -589,6 +601,8 @@ class QuotaMonitorEngine:
             tool_call_count=tool_call_count,
             model_duration_sec=round(model_dur, 1),
             tool_duration_sec=round(tool_dur, 1),
+            timed_output_tokens=timed_output_tokens,
+            timed_model_sec=round(timed_model_sec, 1),
             events=events,
         )
         self._cache[cache_key] = parsed
@@ -746,8 +760,8 @@ class QuotaMonitorEngine:
             total_in_all = selected_conv.sum_uncached_input + selected_conv.sum_cache_read
             cache_hit_pct = (selected_conv.sum_cache_read / total_in_all * 100.0) if total_in_all > 0 else 0.0
             avg_tps = (
-                selected_conv.sum_output / selected_conv.model_duration_sec
-                if selected_conv.model_duration_sec >= 1.0
+                selected_conv.timed_output_tokens / selected_conv.timed_model_sec
+                if selected_conv.timed_model_sec >= 2.0
                 else 0.0
             )
             session_payload = {

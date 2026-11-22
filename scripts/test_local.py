@@ -152,6 +152,8 @@ def test_engine_and_quota_window(_mock_live_quota) -> None:
         assert sess["tokens"]["cacheRead"] == 40600
         assert sess["tokens"]["output"] == 3000
         assert sess["stats"]["toolCallCount"] == 2
+        # 严格 1:1 配对耗时：step 1 (600 tok / 30s) + step 3 (1400 tok / 30s) = 2000 / 60 = 33.3 tok/s，末轮 step 4 不虚增
+        assert sess["stats"]["avgOutputTps"] == 33.3
 
         initial_bucket = next(b for b in dash["quotas"]["buckets"] if b["id"] == "gemini_5h")
         new_step_at = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=2)).isoformat()
@@ -179,6 +181,8 @@ def test_engine_and_quota_window(_mock_live_quota) -> None:
         assert g5["windowUsage"]["totalTokens"] == initial_bucket["windowUsage"]["totalTokens"] + 11000
         assert g5["windowUsage"]["calls"] == initial_bucket["windowUsage"]["calls"] + 1
         assert dash2["session"]["context"]["usedTokens"] == 11000
+        # 超过 120s 空窗与末轮未闭合步骤不应虚增平均输出速率
+        assert dash2["session"]["stats"]["avgOutputTps"] == 33.3
 
         # 测试标准外部额度文件 external_quota.json 优先接入
         ext_file = data_dir / "external_quota.json"

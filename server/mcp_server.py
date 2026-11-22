@@ -33,7 +33,7 @@ from data_engine import QuotaMonitorEngine
 APP_RESOURCE_URI = "ui://quota-monitor/app.html"
 APP_MIME_TYPE = "text/html;profile=mcp-app"
 SERVER_NAME = "antigravity-quota-monitor"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 
 
 def load_app_html() -> str:
