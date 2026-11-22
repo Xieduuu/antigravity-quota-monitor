@@ -27,22 +27,42 @@
 
 ## 界面预览
 
-### Gemini 额度与当前会话
-
-顶部显示 Gemini 5 小时及周限额的剩余百分比和重置倒计时。点击任一「同步」可立即刷新全部额度。下方可查看当前会话的上下文占用、构成估算、缓存命中率及 Token 用量明细。
-
-<a href="./assets/screenshots/quota-and-context.png"><img src="./assets/screenshots/quota-and-context.png" alt="Gemini 额度与当前会话上下文面板，会话名称已遮挡" width="420" /></a>
-
-### 额外额度与用量统计
-
-展开详情后，可以查看 Claude &amp; GPT 的 5 小时及周限额、Gemini 4 Argon 的周限额，以及本机今日、本月和累计 Token 用量与今日缓存命中率。点击日历中的日期可查看当日用量明细，下方按模型汇总本机历史日志中的 Token 用量和调用次数。
-
-<table>
-  <tr>
-    <td align="center" valign="top"><a href="./assets/screenshots/extra-quotas-and-usage.png"><img src="./assets/screenshots/extra-quotas-and-usage.png" alt="Claude 与 GPT、Argon 额度和全局 Token 用量" width="300" /></a></td>
-    <td align="center" valign="top"><a href="./assets/screenshots/usage-calendar.png"><img src="./assets/screenshots/usage-calendar.png" alt="每日用量热力日历、所选日期明细和按模型用量分布" width="300" /></a></td>
-  </tr>
-</table>
+<div align="center">
+  <table>
+    <thead>
+      <tr>
+        <th align="center">主面板 · 额度与会话上下文</th>
+        <th align="center">展开详情 · 多模型额度与汇总</th>
+        <th align="center">每日热力日历 · 模型分布</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td align="center" valign="top" width="33%">
+          <a href="./assets/screenshots/quota-and-context.png">
+            <img src="./assets/screenshots/quota-and-context.png" alt="Gemini 额度与当前会话上下文面板" width="270" />
+          </a>
+        </td>
+        <td align="center" valign="top" width="33%">
+          <a href="./assets/screenshots/extra-quotas-and-usage.png">
+            <img src="./assets/screenshots/extra-quotas-and-usage.png" alt="Claude 与 GPT、Argon 额度和全局 Token 用量" width="270" />
+          </a>
+        </td>
+        <td align="center" valign="top" width="33%">
+          <a href="./assets/screenshots/usage-calendar.png">
+            <img src="./assets/screenshots/usage-calendar.png" alt="每日用量热力日历、所选日期明细和按模型用量分布" width="270" />
+          </a>
+        </td>
+      </tr>
+      <tr>
+        <td align="center"><sub>Gemini 5h / 周限额、实时上下文环、<br/>缓存命中率与 Token 明细</sub></td>
+        <td align="center"><sub>Claude &amp; GPT、Argon 额度池、<br/>今日 / 本月 / 累计用量与命中率</sub></td>
+        <td align="center"><sub>5 级每日用量热力日历、<br/>单日明细与按模型用量分布</sub></td>
+      </tr>
+    </tbody>
+  </table>
+  <p><sub>💡 点击任意截图可查看高清大图</sub></p>
+</div>
 
 ---
 
