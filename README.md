@@ -27,17 +27,20 @@
 
 ## 界面预览
 
-### Gemini 额度与当前会话
-
-顶部显示 Gemini 5 小时及周限额的剩余百分比和重置倒计时。点击任一「同步」可立即刷新全部额度。下方可查看当前会话的上下文占用、构成估算、缓存命中率及 Token 用量明细。
-
-<img src="./assets/screenshots/quota-and-context.png" alt="Gemini 额度与当前会话上下文面板，会话名称已遮挡" width="520" />
-
-### 额外额度与全局用量
-
-展开详情后，可以查看 Claude &amp; GPT 的 5 小时及周限额、Gemini 4 Argon 的周限额，以及本机今日、本月和累计 Token 用量与今日缓存命中率。
-
-<img src="./assets/screenshots/extra-quotas-and-usage.png" alt="Claude 与 GPT、Argon 额度和全局 Token 用量" width="520" />
+<table>
+  <tr>
+    <th align="left" width="50%">Gemini 额度与当前会话</th>
+    <th align="left" width="50%">额外额度与全局用量</th>
+  </tr>
+  <tr>
+    <td valign="top">顶部显示 Gemini 5 小时及周限额的剩余百分比和重置倒计时。点击任一「同步」可立即刷新全部额度。下方可查看当前会话的上下文占用、构成估算、缓存命中率及 Token 用量明细。</td>
+    <td valign="top">展开详情后，可以查看 Claude &amp; GPT 的 5 小时及周限额、Gemini 4 Argon 的周限额，以及本机今日、本月和累计 Token 用量与今日缓存命中率。</td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="./assets/screenshots/quota-and-context.png"><img src="./assets/screenshots/quota-and-context.png" alt="Gemini 额度与当前会话上下文面板，会话名称已遮挡" width="300" /></a></td>
+    <td align="center" valign="top"><a href="./assets/screenshots/extra-quotas-and-usage.png"><img src="./assets/screenshots/extra-quotas-and-usage.png" alt="Claude 与 GPT、Argon 额度和全局 Token 用量" width="300" /></a></td>
+  </tr>
+</table>
 
 ### 每日用量日历与模型分布
 
