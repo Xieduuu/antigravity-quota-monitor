@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -372,8 +373,16 @@ def test_mcp_stdio_protocol() -> None:
         ep_types = [e["type"] for e in open_meta["com.google.antigravity/ui"]["entrypoints"]]
         assert "aux_pane" in ep_types and "global" in ep_types
         assert tools["app_get_dashboard"]["_meta"]["ui"]["visibility"] == ["app"]
+        assert tools["app_check_update"]["_meta"]["ui"]["visibility"] == ["app"]
+        assert tools["app_apply_update"]["_meta"]["ui"]["visibility"] == ["app"]
         assert tools["app_get_dashboard"]["inputSchema"]["properties"]["forceQuotaRefresh"]["type"] == "boolean"
-        assert set(tools) == {"open_monitor", "app_get_dashboard", "app_update_preferences"}
+        assert set(tools) == {
+            "open_monitor",
+            "app_get_dashboard",
+            "app_update_preferences",
+            "app_check_update",
+            "app_apply_update",
+        }
 
         # 校验 resources/read 返回自包含 HTML 且小于 10 MiB
         contents = responses[3]["result"]["contents"]
@@ -391,6 +400,75 @@ def test_mcp_stdio_protocol() -> None:
         print("[PASS] MCP stdio JSON-RPC 2.0 与 MCP Apps 协议端到端测试")
 
 
+def test_updater_safe_apply() -> None:
+    """测试版本比较、域名白名单、Zip Slip 防护、备份与前后端变更判定。"""
+    import updater  # noqa: E402
+
+    assert updater.is_newer_version("v0.2.0", "0.1.1") is True
+    assert updater.is_newer_version("0.1.1", "0.1.1") is False
+    assert updater.is_newer_version("0.1.0", "0.2.0") is False
+
+    # 非白名单域名必须被拒绝
+    bad_res = updater.apply_update(ROOT, Path(tempfile.gettempdir()), "https://evil.example.com/a.zip")
+    assert bad_res["ok"] is False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        plugin_dir = tmp_path / "plugin"
+        data_dir = tmp_path / "data"
+        (plugin_dir / "server").mkdir(parents=True)
+        (plugin_dir / "ui").mkdir(parents=True)
+        (plugin_dir / "plugin.json").write_text(
+            json.dumps({"name": "antigravity-quota-monitor", "version": "0.1.1"}), encoding="utf-8"
+        )
+        (plugin_dir / "server" / "mcp_server.py").write_text("# v1 backend\n", encoding="utf-8")
+        (plugin_dir / "ui" / "app.html").write_text("<html>v1</html>", encoding="utf-8")
+
+        # 1. 仅前端更新包（server/*.py 哈希不变 -> backendChanged 应为 False）
+        zip_fe = tmp_path / "fe_update.zip"
+        with zipfile.ZipFile(zip_fe, "w") as zf:
+            zf.writestr(
+                "repo-v0.2.0/plugin.json",
+                json.dumps({"name": "antigravity-quota-monitor", "version": "0.2.0"}),
+            )
+            zf.writestr("repo-v0.2.0/server/mcp_server.py", "# v1 backend\n")
+            zf.writestr("repo-v0.2.0/ui/app.html", "<html>v2 frontend</html>")
+
+        res_fe = updater.apply_update_from_zip(plugin_dir, data_dir, zip_fe)
+        assert res_fe["ok"] is True
+        assert res_fe["updatedVersion"] == "0.2.0"
+        assert res_fe["backendChanged"] is False
+        assert (plugin_dir / "ui" / "app.html").read_text(encoding="utf-8") == "<html>v2 frontend</html>"
+        assert Path(res_fe["backupDir"]).exists()
+
+        # 2. 后端更新包（server/*.py 变化 -> backendChanged 应为 True）
+        zip_be = tmp_path / "be_update.zip"
+        with zipfile.ZipFile(zip_be, "w") as zf:
+            zf.writestr(
+                "repo-v0.2.1/plugin.json",
+                json.dumps({"name": "antigravity-quota-monitor", "version": "0.2.1"}),
+            )
+            zf.writestr("repo-v0.2.1/server/mcp_server.py", "# v2 backend\n")
+            zf.writestr("repo-v0.2.1/ui/app.html", "<html>v2 frontend</html>")
+
+        res_be = updater.apply_update_from_zip(plugin_dir, data_dir, zip_be)
+        assert res_be["ok"] is True
+        assert res_be["backendChanged"] is True
+        assert (plugin_dir / "server" / "mcp_server.py").read_text(encoding="utf-8") == "# v2 backend\n"
+
+        # 3. Zip Slip 路径穿越必须被拦截
+        zip_bad = tmp_path / "zip_slip.zip"
+        with zipfile.ZipFile(zip_bad, "w") as zf:
+            zf.writestr("../escape.txt", "bad")
+        try:
+            updater.apply_update_from_zip(plugin_dir, data_dir, zip_bad)
+            raise AssertionError("应当拦截 Zip Slip 路径穿越")
+        except ValueError:
+            pass
+
+    print("[PASS] 插件安全更新校验、备份与前后端热更新判定")
+
+
 if __name__ == "__main__":
     test_classification()
     test_engine_and_quota_window()
@@ -398,4 +476,5 @@ if __name__ == "__main__":
     test_live_quota_precedence()
     test_manual_sync_bypasses_cache()
     test_mcp_stdio_protocol()
+    test_updater_safe_apply()
     print("\n全部测试通过！")

@@ -28,12 +28,13 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from data_engine import QuotaMonitorEngine
+from updater import apply_update, check_for_updates
 
 
 APP_RESOURCE_URI = "ui://quota-monitor/app.html"
 APP_MIME_TYPE = "text/html;profile=mcp-app"
 SERVER_NAME = "antigravity-quota-monitor"
-SERVER_VERSION = "0.1.1"
+SERVER_VERSION = "0.2.0"
 
 
 def load_app_html() -> str:
@@ -114,6 +115,39 @@ def build_tools_manifest() -> List[Dict[str, Any]]:
                     "year": {"type": "integer"},
                     "month": {"type": "integer"},
                 },
+                "additionalProperties": False,
+            },
+            "_meta": {
+                "ui": {
+                    "visibility": ["app"],
+                }
+            },
+        },
+        {
+            "name": "app_check_update",
+            "title": "检查插件更新",
+            "description": "仅限前端 UI 调用：手动查询 GitHub Releases 最新版本信息。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            "_meta": {
+                "ui": {
+                    "visibility": ["app"],
+                }
+            },
+        },
+        {
+            "name": "app_apply_update",
+            "title": "执行插件原地更新",
+            "description": "仅限前端 UI 调用：从 GitHub Release 下载并安全替换当前插件运行文件（自动备份与失败回滚）。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "downloadUrl": {"type": "string"},
+                },
+                "required": ["downloadUrl"],
                 "additionalProperties": False,
             },
             "_meta": {
@@ -254,6 +288,23 @@ class McpQuotaServer:
                 "isError": False,
             }
 
+        if name == "app_check_update":
+            info = check_for_updates(PLUGIN_ROOT)
+            return {
+                "content": [{"type": "text", "text": "ok" if info.get("ok") else str(info.get("error") or "err")}],
+                "structuredContent": info,
+                "isError": False,
+            }
+
+        if name == "app_apply_update":
+            dl_url = str(args.get("downloadUrl") or "").strip()
+            res = apply_update(PLUGIN_ROOT, self.engine.data_dir, dl_url)
+            return {
+                "content": [{"type": "text", "text": str(res.get("message") or res.get("error") or "done")}],
+                "structuredContent": res,
+                "isError": False,
+            }
+
         return {
             "content": [{"type": "text", "text": f"未知工具: {name}"}],
             "isError": True,
@@ -346,6 +397,10 @@ def run_preview_http_server(engine: QuotaMonitorEngine, port: int) -> None:
                 ))
                 return
 
+            if parsed.path == "/api/check-update":
+                self._send_json(check_for_updates(PLUGIN_ROOT))
+                return
+
             self.send_response(404)
             self.end_headers()
 
@@ -362,6 +417,10 @@ def run_preview_http_server(engine: QuotaMonitorEngine, port: int) -> None:
                         month=payload.get("month"),
                     )
                 )
+                return
+            if self.path == "/api/apply-update":
+                dl_url = str(payload.get("downloadUrl") or "").strip()
+                self._send_json(apply_update(PLUGIN_ROOT, engine.data_dir, dl_url))
                 return
             self.send_response(404)
             self.end_headers()

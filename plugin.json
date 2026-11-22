@@ -1,7 +1,7 @@
 {
   "name": "antigravity-quota-monitor",
   "displayName": "Antigravity Quota & Context Monitor",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Zero-token local monitor for Antigravity desktop: real-time session context ring, exact cache hit rate and token breakdown, monthly usage heatmap calendar, and live Gemini / Claude & GPT / Argon quotas.",
   "logo": "assets/logo.svg",
   "author": {

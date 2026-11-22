@@ -39,6 +39,7 @@ Copy-Item -Force (Join-Path $RepoRoot "README.md") $TargetDir
 Copy-Item -Force (Join-Path $RepoRoot "assets\logo.svg") (Join-Path $TargetDir "assets")
 Copy-Item -Force (Join-Path $RepoRoot "server\data_engine.py") (Join-Path $TargetDir "server")
 Copy-Item -Force (Join-Path $RepoRoot "server\live_quota.py") (Join-Path $TargetDir "server")
+Copy-Item -Force (Join-Path $RepoRoot "server\updater.py") (Join-Path $TargetDir "server")
 Copy-Item -Force (Join-Path $RepoRoot "server\hook_tracker.py") (Join-Path $TargetDir "server")
 Copy-Item -Force (Join-Path $RepoRoot "server\mcp_server.py") (Join-Path $TargetDir "server")
 Copy-Item -Force (Join-Path $RepoRoot "ui\app.html") (Join-Path $TargetDir "ui")
