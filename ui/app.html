@@ -199,6 +199,30 @@
       }
     }
 
+    /* 极窄辅助栏紧凑适配（拖窄至 280px~350px 依然利落不挤） */
+    @media (max-width: 380px) {
+      body { padding: 9px; font-size: 12.5px; }
+      .topbar { margin-bottom: 9px; gap: 6px; }
+      .brand-sub { display: none; }
+      .card-header { padding: 10px 11px 8px; }
+      .hero-quotas { padding: 0 11px 10px; gap: 7px; }
+      .quota-tile { padding: 8px 9px; gap: 6px; }
+      .ring-wrap { width: 34px; height: 34px; }
+      .quota-tile-mid { gap: 7px; }
+      .quota-big { font-size: 14.5px; }
+      .quota-sub { font-size: 10.2px; }
+      .quota-tile-foot { font-size: 10.2px; }
+      .context-hero { padding: 10px 11px; gap: 9px; }
+      .ctx-ring-wrap { width: 42px; height: 42px; }
+      .ctx-pct-text { font-size: 14px; }
+      .session-bar { padding: 0 11px 9px; }
+      .drawer { padding: 10px 11px 12px; }
+      .expand-bar { padding: 7px 11px; font-size: 11px; }
+      .stats-grid, .cost-grid { gap: 6px; }
+      .stat-box { padding: 7px 8px; }
+      .stat-box-val { font-size: 12.8px; }
+    }
+
     .col {
       display: flex;
       flex-direction: column;
@@ -1340,7 +1364,7 @@
 
         <!-- 点击展开额外额度、Token 汇总与每日日历 -->
         <button class="expand-bar" id="quotaExpandBtn" type="button">
-          <span>展开详情 · Claude &amp; GPT · Argon · 每日用量日历</span>
+          <span>展开详情 · Claude &amp; GPT · 每日用量日历</span>
           <span class="chevron">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"/>
@@ -1449,7 +1473,7 @@
         <span class="badge tabular" id="updateBadge">GitHub Release</span>
       </div>
       <div class="update-ver-row tabular" id="updateVerRow">
-        <span>当前版本：<strong>v0.3.0</strong></span>
+        <span>当前版本：<strong>v0.3.1</strong></span>
         <span id="updateLatestText" style="color:var(--text-muted)">检查中…</span>
       </div>
       <div class="update-status" id="updateStatusText">正在连接 GitHub 查询最新版本…</div>
@@ -1713,7 +1737,6 @@
 
         const primary = buckets.filter((b) => b.primary);
         const claudeGpt = buckets.filter((b) => b.group === "claude_gpt");
-        const argon = buckets.filter((b) => b.group === "argon");
         const syncButton = '<button type="button" class="quota-sync-link" data-quota-sync title="同步全部额度">同步</button>';
 
         const circum = 2 * Math.PI * 16; // r=16 -> 100.53
@@ -1744,25 +1767,12 @@
 
           const offset = circum * (1 - Math.max(0, Math.min(100, pct)) / 100);
           const bigText = pct.toFixed(pct % 1 === 0 ? 0 : 1) + "%";
-          const baseSub = quota.resetsInSec === null ? usageText : "重置 " + fmtCountdown(quota.resetsInSec);
-          const burnSuffix = quota.lastBurnPct ? (" · -" + quota.lastBurnPct.toFixed(quota.lastBurnPct >= 1 ? 1 : 2) + "%") : "";
-          const subText = baseSub + burnSuffix;
-          const subTooltip = [
-            baseSub,
-            quota.lastBurnPct ? ("上次变动 -" + quota.lastBurnPct + "%") : "",
-            quota.estTurnsLeft !== null ? ("按近期均耗预计还能跑 ~" + quota.estTurnsLeft + " 轮") : "",
-          ].filter(Boolean).join(" · ");
-
-          let paceBadge = "";
-          if (quota.pace && quota.pace.label) {
-            const pCls = quota.pace.status === "fast" ? "danger" : (quota.pace.status === "moderate" ? "warn" : "ok");
-            paceBadge = `<span class="badge ${pCls}" style="font-size:9.8px;padding:1px 5px;">${escHtml(quota.pace.label)}</span>`;
-          }
+          const subText = quota.resetsInSec === null ? usageText : "重置 " + fmtCountdown(quota.resetsInSec);
 
           return `
             <div class="quota-tile">
               <div class="quota-tile-top">
-                <span class="quota-label" style="display:inline-flex;align-items:center;gap:5px;">${escHtml(b.label)}${paceBadge}</span>
+                <span class="quota-label">${escHtml(b.label)}</span>
                 ${syncButton}
               </div>
               <div class="quota-tile-mid">
@@ -1775,12 +1785,12 @@
                 </div>
                 <div class="quota-meta">
                   <div class="quota-big tabular">${escHtml(bigText)}</div>
-                  <div class="quota-sub tabular" title="${escHtml(subTooltip)}">${escHtml(subText)}</div>
+                  <div class="quota-sub tabular" title="${escHtml(subText)}">${escHtml(subText)}</div>
                 </div>
               </div>
               <div class="quota-tile-foot tabular">
                 <span>${escHtml(b.shortLabel)} ${fmtTokens(b.windowUsage.totalTokens, true)}</span>
-                <span>${b.windowUsage.calls} 次调用</span>
+                <span>${b.windowUsage.calls} 次</span>
               </div>
             </div>
           `;
@@ -1834,8 +1844,7 @@
         }
 
         document.getElementById("extraQuotas").innerHTML =
-          renderGroupBox("Claude & GPT models", claudeGpt) +
-          renderGroupBox("Gemini 4 Argon", argon);
+          renderGroupBox("Claude & GPT models", claudeGpt);
         updateQuotaSyncButtons();
       }
 
@@ -2101,7 +2110,7 @@
         qBtn.classList.toggle("expanded", state.quotaExpanded);
         qBtn.querySelector("span").textContent = state.quotaExpanded
           ? "收起详情"
-          : "展开详情 · Claude & GPT · Argon · 每日用量日历";
+          : "展开详情 · Claude & GPT · 每日用量日历";
 
         const cDrawer = document.getElementById("contextDrawer");
         const cCard = document.getElementById("contextCard");
@@ -2310,14 +2319,14 @@
         notesEl.style.display = "none";
         statusEl.className = "update-status";
         statusEl.textContent = "正在连接 GitHub 查询最新 Release…";
-        verRow.innerHTML = '<span>当前版本：<strong>v0.3.0</strong></span><span style="color:var(--text-muted)">查询中…</span>';
+        verRow.innerHTML = '<span>当前版本：<strong>v0.3.1</strong></span><span style="color:var(--text-muted)">查询中…</span>';
 
         try {
           const info = await callServerTool("app_check_update", {});
           if (!info || !info.ok) {
             statusEl.className = "update-status err";
             statusEl.textContent = (info && info.error) || "检查更新失败，请稍后重试。";
-            verRow.innerHTML = `<span>当前版本：<strong>v${escHtml((info && info.currentVersion) || "0.3.0")}</strong></span><span style="color:var(--rose)">查询失败</span>`;
+            verRow.innerHTML = `<span>当前版本：<strong>v${escHtml((info && info.currentVersion) || "0.3.1")}</strong></span><span style="color:var(--rose)">查询失败</span>`;
             return;
           }
           state.latestUpdateInfo = info;
@@ -2421,7 +2430,6 @@
               { id: "gemini_weekly", group: "gemini", groupLabel: "Gemini Models", label: "周限额", shortLabel: "周额度", windowHours: 168, primary: true, windowUsage: { totalTokens: 6420000, calls: 98 }, quota: { remainingPct: 90, resetsInSec: 529200 } },
               { id: "claude_gpt_5h", group: "claude_gpt", groupLabel: "Claude & GPT", label: "5h 限额", shortLabel: "5h", windowHours: 5, primary: false, windowUsage: { totalTokens: 0, calls: 0 }, quota: { remainingPct: 100, resetsInSec: null } },
               { id: "claude_gpt_weekly", group: "claude_gpt", groupLabel: "Claude & GPT", label: "周限额", shortLabel: "周额度", windowHours: 168, primary: false, windowUsage: { totalTokens: 920000, calls: 14 }, quota: { remainingPct: 92, resetsInSec: 518400 } },
-              { id: "argon_weekly", group: "argon", groupLabel: "Gemini 4 Argon", label: "周限额", shortLabel: "周额度", windowHours: 168, primary: false, windowUsage: { totalTokens: 0, calls: 0 }, quota: { remainingPct: 100, resetsInSec: null } },
             ],
           },
           usageSummary: { todayTokens: 864204, todayCalls: 16, todayCacheHitPct: 90.5, monthTokens: 14664000, allTimeTokens: 45848000 },
@@ -2457,7 +2465,7 @@
         if (isEmbedded) {
           try {
             const initRes = await sendHostRequest("ui/initialize", {
-              appInfo: { name: "antigravity-quota-monitor", version: "0.3.0" },
+              appInfo: { name: "antigravity-quota-monitor", version: "0.3.1" },
               appCapabilities: {},
               protocolVersion: "2026-01-26",
             });

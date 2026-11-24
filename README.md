@@ -3,7 +3,7 @@
   <h1>Antigravity Quota &amp; Context Monitor</h1>
   <p>
     面向 <strong>Google Antigravity 2.0 桌面端</strong> 的零 Token 消耗本地监控插件<br />
-    实时上下文占用环 · 精确缓存命中率 · 每日用量热力日历 · Gemini / Claude &amp; GPT / Argon 额度监控
+    实时上下文占用环 · 精确缓存命中率 · 每日用量热力日历 · Gemini / Claude &amp; GPT 额度监控
   </p>
   <p>
     <img src="https://img.shields.io/badge/Antigravity-2.0%20MCP%20App-6366F1?style=flat-square" alt="Antigravity 2.0 MCP App" />
@@ -19,7 +19,7 @@
 
 在日常高频使用 **Google Antigravity 2.0 桌面端** 时，经常需要同时关注两件事：
 1. **当前对话上下文还剩多少、缓存命中高不高？**（防止上下文膨胀却浑然不知）
-2. **Gemini 5h / 周额度、Claude & GPT 以及 Gemini 4 Argon 余量还剩多少？**（不用反复点开左下角菜单）
+2. **Gemini 5h / 周额度以及 Claude & GPT 余量还剩多少？**（不用反复点开左下角菜单）
 
 本插件基于 Antigravity 官方 **MCP Apps（SEP-1865）** 与生命周期 **Hooks** 构建，**完全在本地运行、不额外消耗任何模型 Token、无需安装第三方 Python/Node 依赖**，支持暗色 / 浅色主题原生融合。
 
@@ -72,10 +72,10 @@
 - 所有刷新与同步工具均声明为 `visibility: ["app"]`，对大模型完全不可见，面板刷新不占用对话上下文或模型额度。
 - **纯 Python 标准库后端 + 单文件自包含 HTML 前端**，无需 `pip install` 或 `npm install`。
 
-### 2. 三大额度池实时监控 & 消耗节奏感知
+### 2. 两大额度池实时监控
 - 完整对齐 Antigravity 原生 `View Usage` 分组：
-  - **外显常驻**：`Gemini Models` 的 **5h 限额** 与 **周限额**（极简进度环 + 剩余百分比 + 重置倒计时 + **上次变动消耗 / 预计剩余轮数 / 节奏标签**）
-  - **点击展开**：`Claude & GPT models`（5h / 周限额）、`Gemini 4 Argon`（周限额）
+  - **外显常驻**：`Gemini Models` 的 **5h 限额** 与 **周限额**（极简进度环 + 剩余百分比 + 重置倒计时 + 本机窗口 Token 消耗）
+  - **点击展开**：`Claude & GPT models`（5h / 周限额）
 - 面板通过桌面端本机的 `RetrieveUserQuotaSummary` 接口读取剩余百分比与重置时间，支持点击「同步」跳过缓存立即刷新；同时支持外部额度文件 `external_quota.json` 作为补充来源。
 - 额度解析实现参考了 [Antigravity Model Usage](https://github.com/DYY-Studio/antigravity-model-usage/blob/main/sidecars/usage/main.mjs) 与 [CodexBar](https://github.com/steipete/CodexBar/blob/b41715f3e3fb85d01d807b9bd7a64d9bf384c6f8/Sources/CodexBarCore/Providers/Antigravity/AntigravityQuotaSummaryParser.swift)。
 
@@ -176,8 +176,7 @@ python server/mcp_server.py --preview 8765
     "gemini_5h": { "remainingPct": 88, "resetsAt": "2026-11-22T10:48:00Z" },
     "gemini_weekly": { "remainingPct": 90, "resetsAt": "2026-11-28T09:30:00Z" },
     "claude_gpt_5h": { "remainingPct": 100 },
-    "claude_gpt_weekly": { "remainingPct": 92, "resetsAt": "2026-11-28T06:30:00Z" },
-    "argon_weekly": { "remainingPct": 100 }
+    "claude_gpt_weekly": { "remainingPct": 92, "resetsAt": "2026-11-28T06:30:00Z" }
   }
 }
 ```

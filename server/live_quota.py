@@ -1,4 +1,4 @@
-"""Read the five quota buckets from Antigravity Desktop's local language server."""
+"""Read the four quota buckets from Antigravity Desktop's local language server."""
 
 from __future__ import annotations
 
@@ -21,8 +21,6 @@ BUCKET_IDS = {
     "gemini-weekly": "gemini_weekly",
     "3p-5h": "claude_gpt_5h",
     "3p-weekly": "claude_gpt_weekly",
-    "gemini-argon-wtu-weekly": "argon_weekly",
-    "gemini-argon-weekly": "argon_weekly",
 }
 Endpoint = tuple[str, int, str]
 

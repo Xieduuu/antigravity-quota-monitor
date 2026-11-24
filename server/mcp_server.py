@@ -34,7 +34,7 @@ from updater import apply_update, check_for_updates
 APP_RESOURCE_URI = "ui://quota-monitor/app.html"
 APP_MIME_TYPE = "text/html;profile=mcp-app"
 SERVER_NAME = "antigravity-quota-monitor"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.3.1"
 
 
 def load_app_html() -> str:
@@ -52,7 +52,7 @@ def build_tools_manifest() -> List[Dict[str, Any]]:
             "title": "额度与上下文监控",
             "description": (
                 "打开 Antigravity 额度与上下文监控面板，展示当前会话精确上下文占用、"
-                "缓存命中率、历史每日用量日历及 Gemini / Claude & GPT / Argon 额度同步。"
+                "缓存命中率、历史每日用量日历及 Gemini / Claude & GPT 额度同步。"
             ),
             "inputSchema": {
                 "type": "object",

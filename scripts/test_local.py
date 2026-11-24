@@ -104,7 +104,7 @@ def make_sample_transcript(path: Path, now: dt.datetime) -> None:
 
 def test_classification() -> None:
     assert classify_model_group("gemini-4-neon-high") == "gemini"
-    assert classify_model_group("gemini-4-argon-medium") == "argon"
+    assert classify_model_group("gemini-4-argon-medium") == "gemini"
     assert classify_model_group("claude-opus-5.5-medium") == "claude_gpt"
     assert classify_model_group("gpt-oss-120b-medium") == "claude_gpt"
     assert get_default_context_limit("gemini-4-neon-high") == 1_000_000
@@ -247,7 +247,7 @@ def test_live_quota_precedence() -> None:
         {"bucketId": "3p-weekly", "resetTime": future},
     ]}]}}
     buckets = parse_quota_summary(payload)
-    assert set(buckets) == {"gemini_5h", "gemini_weekly", "argon_weekly"}
+    assert set(buckets) == {"gemini_5h", "gemini_weekly"}
 
     with tempfile.TemporaryDirectory() as tmp:
         engine = QuotaMonitorEngine(data_dir=Path(tmp), brain_dirs=[])
@@ -275,7 +275,7 @@ def test_live_quota_precedence() -> None:
         assert by_id["gemini_5h"]["resetsInSec"] > 0
         assert by_id["gemini_weekly"]["remainingPct"] == 44
         assert by_id["gemini_weekly"]["resetsInSec"] is None
-        assert by_id["argon_weekly"]["remainingPct"] == 50
+        assert "argon_weekly" not in by_id
         assert by_id["claude_gpt_5h"]["source"] == "external"
         assert by_id["claude_gpt_5h"]["remainingPct"] == 81
         assert by_id["claude_gpt_weekly"]["source"] == "unavailable"

@@ -8,8 +8,8 @@ Antigravity 额度与上下文监控插件 — 核心数据解析与额度引擎
 2. 计算当前会话的精确上下文占用（input_tokens + cache_read_tokens + output_tokens）、
    精确缓存命中率、模型/工具耗时，以及标注为估算值的上下文构成拆分。
 3. 汇总全局今日 / 本月 / 累计 Token 用量与当月每日热力日历。
-4. 对齐 Antigravity 原生 View Usage 的三大额度池（Gemini Models、Claude & GPT、
-   Gemini 4 Argon），读取桌面端余量及重置时间。
+4. 对齐 Antigravity 原生 View Usage 的两大额度池（Gemini Models、Claude & GPT），
+   读取桌面端余量及重置时间。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ else:
     from live_quota import LiveQuotaSource
 
 
-# 三大额度池的 5 个标准桶定义（与 Antigravity 原生 View Usage 完全对齐）
+# 两大额度池的 4 个标准桶定义（与 Antigravity 原生 View Usage 完全对齐）
 QUOTA_BUCKETS: List[Dict[str, Any]] = [
     {
         "id": "gemini_5h",
@@ -64,15 +64,6 @@ QUOTA_BUCKETS: List[Dict[str, Any]] = [
         "id": "claude_gpt_weekly",
         "group": "claude_gpt",
         "groupLabel": "Claude & GPT",
-        "label": "周限额",
-        "shortLabel": "周额度",
-        "windowHours": 24 * 7,
-        "primary": False,
-    },
-    {
-        "id": "argon_weekly",
-        "group": "argon",
-        "groupLabel": "Gemini 4 Argon",
         "label": "周限额",
         "shortLabel": "周额度",
         "windowHours": 24 * 7,
@@ -167,20 +158,17 @@ def parse_iso_utc(raw: Optional[str]) -> Optional[dt.datetime]:
 
 def classify_model_group(model_name: Optional[str]) -> str:
     """
-    将模型名称归类到与 Antigravity 原生 View Usage 一致的三大额度池：
-    - argon: Gemini 4 Argon 独立周额度池
+    将模型名称归类到与 Antigravity 原生 View Usage 一致的两大额度池：
     - claude_gpt: Claude 与 GPT 系列共享额度池
-    - gemini: Gemini 系列（Neon / Hydrogen / Carbon / Flash / Pro 等）
+    - gemini: Gemini 系列（Neon / Argon / Hydrogen / Carbon / Flash / Pro 等）
     - other: 其他未识别模型
     """
     if not model_name:
         return "other"
     low = model_name.lower()
-    if "argon" in low:
-        return "argon"
     if any(k in low for k in ("claude", "sonnet", "opus", "haiku", "gpt", "openai", "o1-", "o3-", "o4-")):
         return "claude_gpt"
-    if any(k in low for k in ("gemini", "neon", "hydrogen", "carbon", "flash", "pro", "orchestrator")):
+    if any(k in low for k in ("gemini", "argon", "neon", "hydrogen", "carbon", "flash", "pro", "orchestrator")):
         return "gemini"
     return "other"
 
